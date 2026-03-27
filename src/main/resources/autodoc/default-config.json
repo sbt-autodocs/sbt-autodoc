@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "services": [
+    {
+      "id": "ad-service",
+      "title": "Ad Service",
+      "pathPrefixes": ["ad-service/"]
+    }
+  ],
+  "defaults": {
+    "markdownTemplate": "default.md.tpl",
+    "templateRoot": "templates",
+    "outputFileName": "autodoc.md"
+  }
+}
