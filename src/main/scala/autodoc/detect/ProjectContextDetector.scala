@@ -17,7 +17,7 @@ object ProjectContextDetector {
           .resolveService(config, projectPathFromRepoRoot)
           .toRight(
             s"sbt-autodoc: no service mapping for project path '$projectPathFromRepoRoot'; " +
-              "add pathPrefixes in ad-service-documentation config or set autoDocServiceId",
+              "add pathPrefixes (or use [\".\"] for the whole repo), or set autoDocServiceId",
           )
     }
 }

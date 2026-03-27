@@ -5,7 +5,7 @@ You would rather ship **ad-service** than spend your afternoon in **ad-service-d
 It:
 
 1. Loads configuration from **ad-service-documentation** (or a local checkout you point at).
-2. Runs `git diff` and keeps only paths under the **current sbt project** `baseDirectory` (for example, only `ad-service/...` when that project’s base is the service folder).
+2. Runs `git diff --name-status` and keeps only paths under the **current sbt project** `baseDirectory`. By default it diffs **all commits on your current branch** since the merge-base with `origin/main` (`origin/main...HEAD`); you can switch to uncommitted-only or override the base ref (see settings below).
 3. Resolves the **service** (e.g. `ad-service`) from `pathPrefixes` in the config, or from `autoDocServiceId`.
 4. Renders a Markdown summary using a template from the documentation repo (or the bundled default).
 
@@ -17,7 +17,7 @@ The plugin is built for **Scala 2.12** (sbt’s own Scala version). It can be us
 
 ```scala
 // project/plugins.sbt
-addSbtPlugin("autodoc" % "sbt-autodoc" % "<version>")
+addSbtPlugin("autodoc" % "sbt-autodoc" % "0.3.0-SNAPSHOT")
 ```
 
 ### 2. Point at ad-service-documentation
@@ -46,9 +46,13 @@ Output defaults to `target/autodoc/autodoc.md`.
 | Key | Purpose |
 | --- | --- |
 | `autoDocLocalDocumentationRoot` | Use a local path instead of cloning (overrides `autoDocDocumentationRepoUrl`). |
-| `autoDocGitDiffSpec` | e.g. `Some("origin/main...HEAD")` for branch-range diffs; default is uncommitted vs `HEAD`. |
+| `autoDocGitDiffScope` | **`branch`** (default): entire branch vs merge-base with `autoDocGitBranchBase` (`git diff base...HEAD`). **`uncommitted`**: only local changes vs `HEAD` (`git diff HEAD`). |
+| `autoDocGitBranchBase` | Left side of the three-dot diff when scope is `branch` (default `origin/main`). Use `origin/master` if your default branch is `master`. |
+| `autoDocGitDiffSpec` | If set, overrides scope and base; passed as the rev expression to `git diff --name-status` (e.g. `Some("origin/develop...HEAD")`). |
 | `autoDocServiceId` | Force a service id from the JSON config when path-based inference is wrong. |
 | `autoDocOutputFile` | Where to write the Markdown file. |
+| `autoDocElaborationProvider` | `none` (default), `claude-code`, `cursor-cli`, etc. Requires plugin **≥ 0.3.0-SNAPSHOT** (or a build that includes elaboration). |
+| `autoDocElaborationMode` | `handoff` (write prompt only) or `execute` (run provider CLI if configured). Task: `autoDocElaborate`. |
 
 ## ad-service-documentation JSON (`version`: 1)
 
@@ -72,8 +76,59 @@ Place a file such as `autodoc/config.json` in that repository:
 }
 ```
 
-- **pathPrefixes**: Used to infer which service an sbt project belongs to (longest matching prefix wins). Paths are POSIX-style, relative to the git repository root.
+Single git repo for one service with several sbt modules (`core/`, `service/`, …):
+
+```json
+{
+  "version": 1,
+  "services": [
+    {
+      "id": "edge-ctrl",
+      "title": "Edge Ctrl",
+      "pathPrefixes": ["."]
+    }
+  ]
+}
+```
+
+- **pathPrefixes**: Used to infer which service an sbt project belongs to (longest matching prefix wins). Paths are POSIX-style, relative to the git repository root. Use **`"."`** (or `"*"`) when the git repo is a single service with multiple sbt modules (e.g. edge-ctrl with `core/`, `service/`, …) so every module maps to the same service.
 - **templates**: Resolved under the documentation repo root, e.g. `templates/default.md.tpl`. Placeholders: `{{serviceId}}`, `{{serviceTitle}}`, `{{projectPath}}`, `{{generatedAt}}`, `{{changeList}}`.
+
+### Troubleshooting
+
+**`RuntimeException` showing only a path to `.../autodoc/config.json`**
+
+That almost always means the file **does not exist** at `autoDocDocumentationConfigPath` inside the documentation repo (default `autodoc/config.json`). Add it there, or point `autoDocDocumentationConfigPath` at whatever path your team actually uses (for example `config/autodoc.json`).
+
+**Many parallel `git fetch` lines when running `autoDoc` on all projects**
+
+The documentation repo is cached under **`(LocalRootProject base)/target/autodoc/documentation-repo`** (the build root, not each module’s `target/`). Per-subproject output still goes to each module’s `target/autodoc/autodoc.md`.
+
+**`no service mapping for project path 'core'`**
+
+Your git root is probably the service repo (paths like `core`, `service`). Either add **`pathPrefixes: ["."]`** on the edge-ctrl service in the documentation config, list every module (`core/`, `service/`, …), or set **`autoDocServiceId`** in sbt.
+
+**`not found: value autoDocGitDiffScope` (or other keys, e.g. `autoDocElaborationProvider`)**
+
+1. **Use a JAR that defines those keys** — elaboration settings exist from **`0.3.0-SNAPSHOT`**. Set `addSbtPlugin("autodoc" % "sbt-autodoc" % "0.3.0-SNAPSHOT")`, run **`sbt publishLocal`** in this repo, then **`reload`** in the consumer. Remote **`0.2.0-SNAPSHOT`** artifacts may predate elaboration; Coursier can keep serving an old snapshot unless you bump the declared version or clear caches.
+2. **Import keys explicitly** (first lines of `build.sbt`, before any `lazy val`):
+
+```scala
+import autodoc.SbtKeys._
+```
+
+or:
+
+```scala
+import autodoc.keys.AutoDocKeys
+// then AutoDocKeys.autoDocGitDiffScope := ...
+```
+
+3. Optional: `import autodoc.AutoDocPlugin.autoImport._` — same keys as `SbtKeys` when the plugin JAR on the classpath is current.
+
+**`Cannot run program "agent"` / `No such file or directory` (cursor-cli)**
+
+The Cursor CLI binary is not on the **`PATH` seen by the JVM** (common when sbt is started from an IDE). Install [Cursor CLI](https://cursor.com/docs/cli/installation) and add **`~/.local/bin`** to PATH in the environment that launches sbt, or set an absolute path, e.g. `autoDocElaborationCursorCliExecutable := sys.props("user.home") + "/.local/bin/agent"`. The plugin also tries **`~/.local/bin/agent`** automatically when the setting is the default name `agent` but `agent` is missing from PATH.
 
 ## Development
 
