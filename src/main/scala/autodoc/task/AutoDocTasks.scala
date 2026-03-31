@@ -7,6 +7,8 @@ import autodoc.util.FileUtils
 import sbt.Keys._
 import sbt._
 
+import java.io.IOException
+
 import scala.sys.process._
 
 object AutoDocTasks {
@@ -17,6 +19,17 @@ object AutoDocTasks {
     autoDocLocalDocumentationRoot := None,
     autoDocDocumentationRef := "main",
     autoDocDocumentationConfigPath := "autodoc/config.json",
+    autoDocDocumentationRepoKind := None,
+    autoDocDocumentationOutputMode := "serviceTarget",
+    autoDocDocusaurusContentPath := None,
+    autoDocDocusaurusOutputFilePrefix := None,
+    autoDocDocusaurusOutputFileDatePrefix := None,
+    autoDocDocumentationBranchName := None,
+    autoDocDocumentationCommitMessage := None,
+    autoDocDocumentationCommit := true,
+    autoDocDocumentationGitStage := false,
+    autoDocDocumentationBranchMarkdownSource := "elaborated",
+    autoDocDocumentationRepoResolution := "sibling",
     // One clone per build (root project base, not each module's target/).
     autoDocDocumentationCacheDirectory :=
       (LocalRootProject / baseDirectory).value / "target" / "autodoc" / "documentation-repo",
@@ -54,6 +67,7 @@ object AutoDocTasks {
     autoDocElaborationCursorCliExecutable := "agent",
     autoDocElaborationCursorCliArgs := Seq.empty,
     autoDocElaborationMermaidDiagrams := "ask",
+    autoDocElaborationServiceDocs := "ask",
     autoDoc := {
       val log = streams.value.log
       val out = autoDocOutputFile.value
@@ -70,6 +84,7 @@ object AutoDocTasks {
         val scopeBase =
           if (per) baseDirectory.value
           else (LocalRootProject / baseDirectory).value
+        val localRootBase = (LocalRootProject / baseDirectory).value.getCanonicalFile
         val gitDiff =
           autoDocGitDiffSpec.value.orElse {
             if (autoDocGitDiffScope.value.equalsIgnoreCase("branch"))
@@ -85,10 +100,22 @@ object AutoDocTasks {
             documentationRef = autoDocDocumentationRef.value,
             documentationConfigRelativePath = autoDocDocumentationConfigPath.value,
             documentationCacheDirectory = autoDocDocumentationCacheDirectory.value,
+            serviceProjectRoot = localRootBase,
+            documentationRepoResolution = autoDocDocumentationRepoResolution.value,
             gitDiffSpec = gitDiff,
             serviceIdOverride = autoDocServiceId.value,
             outputFile = out,
             loader = classOf[MarkdownRenderer].getClassLoader,
+            documentationRepoKindOverride = autoDocDocumentationRepoKind.value,
+            documentationOutputMode = autoDocDocumentationOutputMode.value,
+            docusaurusContentPathOverride = autoDocDocusaurusContentPath.value,
+            docusaurusOutputFilePrefix = autoDocDocusaurusOutputFilePrefix.value,
+            docusaurusOutputFileDatePrefix = autoDocDocusaurusOutputFileDatePrefix.value,
+            documentationBranchName = autoDocDocumentationBranchName.value,
+            documentationCommitMessage = autoDocDocumentationCommitMessage.value,
+            documentationCommit = autoDocDocumentationCommit.value,
+            documentationGitStage = autoDocDocumentationGitStage.value,
+            documentationBranchMarkdownSource = autoDocDocumentationBranchMarkdownSource.value,
           )
           .fold(
             msg => sys.error(msg),
@@ -116,15 +143,80 @@ object AutoDocTasks {
         val elaborationWorkDir =
           if (per) baseDirectory.value
           else (LocalRootProject / baseDirectory).value
-        val provider = autoDocElaborationProvider.value.trim
-        if (provider.equalsIgnoreCase("none")) {
+        val providerRaw = autoDocElaborationProvider.value
+        val provider = ElaborationProviderSyntax.normalize(providerRaw)
+        if (provider == "none") {
           log.info("sbt-autodoc: autoDocElaborationProvider is none; skipping autoDocElaborate")
           Seq.empty
         } else {
-        val mode = autoDocElaborationMode.value.trim.toLowerCase
+        log.info(
+          s"sbt-autodoc: elaboration — project=${name.value}, autoDocElaborationProvider raw='$providerRaw' normalized='$provider', " +
+            s"autoDocElaborationCommand=${autoDocElaborationCommand.value}",
+        )
+        val localRootBase = (LocalRootProject / baseDirectory).value.getCanonicalFile
+        val gitDiffBranch =
+          autoDocGitDiffSpec.value.orElse {
+            if (autoDocGitDiffScope.value.equalsIgnoreCase("branch"))
+              Some(s"${autoDocGitBranchBase.value}...HEAD")
+            else None
+          }
         val input = autoDocOutputFile.value
         val promptFile = autoDocElaborationPromptFile.value
         val outputFile = autoDocElaborationOutputFile.value
+        def publishDocumentationBranchAfterElaborate(handoffMode: Boolean): Unit = {
+          val outMode = autoDocDocumentationOutputMode.value.trim.toLowerCase.replaceAll("_", "")
+          val src = autoDocDocumentationBranchMarkdownSource.value.trim.toLowerCase.replaceAll("_", "")
+          if (outMode != "documentationbranch" || src != "elaborated") ()
+          else
+            FileUtils.readUtf8(outputFile) match {
+              case Right(md) if md.trim.nonEmpty =>
+                AutoDocRunner
+                  .publishDocumentationBranchFromElaboratedMarkdown(
+                    log = log,
+                    baseDirectory = elaborationWorkDir,
+                    documentationRepoUrl = autoDocDocumentationRepoUrl.value,
+                    localDocumentationRoot = autoDocLocalDocumentationRoot.value,
+                    documentationRef = autoDocDocumentationRef.value,
+                    documentationConfigRelativePath = autoDocDocumentationConfigPath.value,
+                    documentationCacheDirectory = autoDocDocumentationCacheDirectory.value,
+                    serviceProjectRoot = localRootBase,
+                    documentationRepoResolution = autoDocDocumentationRepoResolution.value,
+                    gitDiffSpec = gitDiffBranch,
+                    serviceIdOverride = autoDocServiceId.value,
+                    markdown = md,
+                    documentationRepoKindOverride = autoDocDocumentationRepoKind.value,
+                    docusaurusContentPathOverride = autoDocDocusaurusContentPath.value,
+                    docusaurusOutputFilePrefix = autoDocDocusaurusOutputFilePrefix.value,
+                    docusaurusOutputFileDatePrefix = autoDocDocusaurusOutputFileDatePrefix.value,
+                    documentationBranchName = autoDocDocumentationBranchName.value,
+                    documentationCommitMessage = autoDocDocumentationCommitMessage.value,
+                    documentationCommit = autoDocDocumentationCommit.value,
+                    documentationGitStage = autoDocDocumentationGitStage.value,
+                  )
+                  .fold(
+                    sys.error,
+                    f =>
+                      log.success(
+                        s"sbt-autodoc: documentation branch updated with elaborated markdown at ${f.getAbsolutePath}",
+                      ),
+                  )
+              case Right(_) =>
+                if (handoffMode)
+                  log.warn(
+                    "sbt-autodoc: elaborated output file is still empty (handoff mode only writes the prompt). " +
+                      "Use autoDocElaborationMode := \"execute\" to run the AI and publish to the documentation repo in one step, " +
+                      "or write " + outputFile.getAbsolutePath + " yourself and run autoDocElaborate again. " +
+                      "Alternatively set autoDocDocumentationBranchMarkdownSource := \"generated\" so autoDoc publishes raw markdown to the docs branch.",
+                  )
+                else
+                  log.warn(
+                    "sbt-autodoc: elaborated output is empty; skipping documentation branch publish",
+                  )
+              case Left(err) =>
+                log.warn(s"sbt-autodoc: could not read elaborated markdown ($err); skipping documentation branch publish")
+            }
+        }
+        val mode = autoDocElaborationMode.value.trim.toLowerCase
         val audience = autoDocElaborationAudience.value
         val tone = autoDocElaborationTone.value
         val custom = autoDocElaborationCustomPrompt.value
@@ -137,6 +229,8 @@ object AutoDocTasks {
             autoDocLocalDocumentationRoot.value,
             autoDocDocumentationRef.value,
             autoDocDocumentationCacheDirectory.value,
+            (LocalRootProject / baseDirectory).value.getCanonicalFile,
+            autoDocDocumentationRepoResolution.value,
           )
           docRoot match {
             case Left(msg) =>
@@ -161,6 +255,44 @@ object AutoDocTasks {
               else ""
           }
         }
+        val serviceDocsBlock =
+          AutoDocRunner
+            .loadElaborationDocumentationContext(
+              log = log,
+              baseDirectory = elaborationWorkDir,
+              documentationRepoUrl = autoDocDocumentationRepoUrl.value,
+              localDocumentationRoot = autoDocLocalDocumentationRoot.value,
+              documentationRef = autoDocDocumentationRef.value,
+              documentationConfigRelativePath = autoDocDocumentationConfigPath.value,
+              documentationCacheDirectory = autoDocDocumentationCacheDirectory.value,
+              serviceProjectRoot = localRootBase,
+              documentationRepoResolution = autoDocDocumentationRepoResolution.value,
+              gitDiffSpec = gitDiffBranch,
+              serviceIdOverride = autoDocServiceId.value,
+            ) match {
+              case Left(msg) =>
+                log.debug(s"sbt-autodoc: documentation context not resolved for service-doc scan: $msg")
+                ""
+              case Right(ctx) =>
+                val related = ServiceDocumentationIndex.findRelatedFiles(ctx.docRoot, ctx.serviceId)
+                if (related.isEmpty) ""
+                else if (
+                  ElaborationIncludePolicy.shouldInclude(
+                    autoDocElaborationServiceDocs.value,
+                    related.size,
+                    s"sbt-autodoc: Found ${related.size} existing documentation file(s) for `${ctx.serviceId}` " +
+                      "in the documentation repo. Include in-place update instructions in the elaboration prompt?",
+                    log,
+                    interaction,
+                  )
+                ) {
+                  log.info(
+                    s"sbt-autodoc: adding existing service doc hints (${related.size} file(s), service=${ctx.serviceId}) to elaboration prompt",
+                  )
+                  ServiceDocumentationIndex.formatServiceSection(related, ctx.docRoot, ctx.serviceId)
+                }
+                else ""
+            }
         val promptBody =
           s"""# Autodoc AI elaboration ($provider)
              |
@@ -172,12 +304,12 @@ object AutoDocTasks {
              |
              |- **Audience**: $audience
              |- **Tone**: $tone
-             |$customBlock$diagramBlock
+             |$customBlock$diagramBlock$serviceDocsBlock
              |""".stripMargin
         val promptForDisk =
-          if (provider.equalsIgnoreCase("claude-code"))
+          if (provider == "claude-code")
             ClaudeCodeElaboration.buildClaudePrompt(promptBody)
-          else if (provider.equalsIgnoreCase("cursor-cli"))
+          else if (provider == "cursor-cli")
             CursorCliElaboration.buildCursorPrompt(promptBody)
           else promptBody
         FileUtils.writeUtf8(promptFile, promptForDisk)
@@ -186,17 +318,37 @@ object AutoDocTasks {
           case "execute" =>
             autoDocElaborationCommand.value match {
               case Some(template) =>
+                log.info(
+                  "sbt-autodoc: autoDocElaborationCommand is set — only that shell runs; " +
+                    "built-in claude-code / cursor-cli executables are not used for this task.",
+                )
                 val expanded = template
                   .replace("{input}", input.getAbsolutePath)
                   .replace("{output}", outputFile.getAbsolutePath)
                   .replace("{prompt}", promptFile.getAbsolutePath)
-                val exit = expanded ! ProcessLogger(log.info(_), log.warn(_))
+                val exit =
+                  try expanded ! ProcessLogger(log.info(_), log.warn(_))
+                  catch {
+                    case e: IOException =>
+                      sys.error(
+                        s"sbt-autodoc: failed to start autoDocElaborationCommand: ${e.getMessage}\n" +
+                          "If you meant the Cursor CLI, the binary is usually `agent`, not `cursor-cli`. " +
+                          "Remove autoDocElaborationCommand and use autoDocElaborationProvider := \"cursor-cli\" " +
+                          "with autoDocElaborationCursorCliExecutable := \"agent\" (or the full path to agent). " +
+                          "See README (Cursor CLI / Cannot run program \"agent\").",
+                      )
+                  }
                 if (exit != 0)
                   sys.error(s"autoDocElaborationCommand exited with $exit")
                 log.success(s"sbt-autodoc: elaboration command finished; see ${outputFile.getAbsolutePath}")
+                publishDocumentationBranchAfterElaborate(handoffMode = false)
                 Seq(outputFile)
               case None =>
-                if (provider.equalsIgnoreCase("claude-code")) {
+                log.info(
+                  s"sbt-autodoc: built-in elaboration (no autoDocElaborationCommand): provider=$provider " +
+                    "(claude-code → claude CLI, cursor-cli → Cursor agent)",
+                )
+                if (provider == "claude-code") {
                   FileUtils.ensureParentDir(outputFile)
                   val exit = ClaudeCodeElaboration.run(
                     log = log,
@@ -208,8 +360,9 @@ object AutoDocTasks {
                   if (exit != 0)
                     sys.error(s"Claude Code CLI exited with code $exit")
                   log.success(s"sbt-autodoc: Claude Code elaboration finished; see ${outputFile.getAbsolutePath}")
+                  publishDocumentationBranchAfterElaborate(handoffMode = false)
                   Seq(outputFile)
-                } else if (provider.equalsIgnoreCase("cursor-cli")) {
+                } else if (provider == "cursor-cli") {
                   FileUtils.ensureParentDir(outputFile)
                   val exit = CursorCliElaboration.run(
                     log = log,
@@ -221,6 +374,7 @@ object AutoDocTasks {
                   if (exit != 0)
                     sys.error(s"Cursor CLI (agent) exited with code $exit")
                   log.success(s"sbt-autodoc: Cursor CLI elaboration finished; see ${outputFile.getAbsolutePath}")
+                  publishDocumentationBranchAfterElaborate(handoffMode = false)
                   Seq(outputFile)
                 } else
                   sys.error(
@@ -229,6 +383,7 @@ object AutoDocTasks {
                   )
             }
           case "handoff" =>
+            publishDocumentationBranchAfterElaborate(handoffMode = true)
             Seq(promptFile)
           case other =>
             sys.error(s"autoDocElaborationMode must be handoff or execute, got: $other")
