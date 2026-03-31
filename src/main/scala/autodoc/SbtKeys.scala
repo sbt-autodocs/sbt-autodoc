@@ -15,6 +15,17 @@ object SbtKeys {
   val autoDocLocalDocumentationRoot = AutoDocKeys.autoDocLocalDocumentationRoot
   val autoDocDocumentationRef = AutoDocKeys.autoDocDocumentationRef
   val autoDocDocumentationConfigPath = AutoDocKeys.autoDocDocumentationConfigPath
+  val autoDocDocumentationRepoKind = AutoDocKeys.autoDocDocumentationRepoKind
+  val autoDocDocumentationOutputMode = AutoDocKeys.autoDocDocumentationOutputMode
+  val autoDocDocusaurusContentPath = AutoDocKeys.autoDocDocusaurusContentPath
+  val autoDocDocusaurusOutputFilePrefix = AutoDocKeys.autoDocDocusaurusOutputFilePrefix
+  val autoDocDocusaurusOutputFileDatePrefix = AutoDocKeys.autoDocDocusaurusOutputFileDatePrefix
+  val autoDocDocumentationBranchName = AutoDocKeys.autoDocDocumentationBranchName
+  val autoDocDocumentationCommitMessage = AutoDocKeys.autoDocDocumentationCommitMessage
+  val autoDocDocumentationCommit = AutoDocKeys.autoDocDocumentationCommit
+  val autoDocDocumentationGitStage = AutoDocKeys.autoDocDocumentationGitStage
+  val autoDocDocumentationBranchMarkdownSource = AutoDocKeys.autoDocDocumentationBranchMarkdownSource
+  val autoDocDocumentationRepoResolution = AutoDocKeys.autoDocDocumentationRepoResolution
   val autoDocDocumentationCacheDirectory = AutoDocKeys.autoDocDocumentationCacheDirectory
   val autoDocGitDiffScope = AutoDocKeys.autoDocGitDiffScope
   val autoDocGitBranchBase = AutoDocKeys.autoDocGitBranchBase
@@ -36,4 +47,5 @@ object SbtKeys {
   val autoDocElaborationCursorCliExecutable = AutoDocKeys.autoDocElaborationCursorCliExecutable
   val autoDocElaborationCursorCliArgs = AutoDocKeys.autoDocElaborationCursorCliArgs
   val autoDocElaborationMermaidDiagrams = AutoDocKeys.autoDocElaborationMermaidDiagrams
+  val autoDocElaborationServiceDocs = AutoDocKeys.autoDocElaborationServiceDocs
 }

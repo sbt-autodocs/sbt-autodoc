@@ -37,6 +37,39 @@ object DocumentationRepo {
       else fetchAndCheckout(cacheDir, ref, log).map(_ => cacheDir)
     }
 
+  /**
+    * For an existing local clone (e.g. sibling checkout): fetch, checkout [[ref]], then fast-forward pull from origin.
+    */
+  def fetchCheckoutPull(dest: File, ref: String, log: Logger): Either[String, Unit] =
+    lockFor(dest).synchronized {
+      LogUtils.info(log, s"sbt-autodoc: updating documentation repo at ${dest.getAbsolutePath} (fetch / checkout / pull)")
+      val fetch =
+        Process(Seq("git", "-C", dest.getAbsolutePath, "fetch", "origin", ref))
+      val fetchCode = fetch.!(ProcessLogger(log.info(_), log.warn(_)))
+      if (fetchCode != 0)
+        LogUtils.warn(log, s"sbt-autodoc: git fetch origin $ref exited with $fetchCode; continuing with checkout")
+      checkout(dest, ref, log).flatMap { _ =>
+        val pull =
+          Process(Seq("git", "-C", dest.getAbsolutePath, "pull", "--ff-only", "origin", ref))
+        val code = pull.!(ProcessLogger(log.info(_), log.warn(_)))
+        if (code == 0) Right(())
+        else
+          Left(
+            s"git pull --ff-only origin $ref failed with exit code $code " +
+              s"(merge or rebase manually in ${dest.getAbsolutePath})",
+          )
+      }
+    }
+
+  /** Shallow-clone into [[dest]] (must not exist yet). Serialized per destination path. */
+  def cloneShallowTo(url: String, ref: String, dest: File, log: Logger): Either[String, File] =
+    lockFor(dest).synchronized {
+      if (dest.exists())
+        Left(s"sbt-autodoc: clone destination already exists: ${dest.getAbsolutePath}")
+      else
+        cloneShallow(url, ref, dest, log)
+    }
+
   private def cloneShallow(url: String, ref: String, dest: File, log: Logger): Either[String, File] = {
     LogUtils.info(log, s"sbt-autodoc: cloning documentation repo into ${dest.getAbsolutePath}")
     val withBranch = Process(Seq("git", "clone", "--depth", "1", "-b", ref, url, dest.getAbsolutePath))

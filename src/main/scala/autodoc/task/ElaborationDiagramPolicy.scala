@@ -16,21 +16,9 @@ object ElaborationDiagramPolicy {
       log: Logger,
       interaction: InteractionService,
   ): Boolean = {
-    if (mmdCount <= 0) return false
-    policy.trim.toLowerCase match {
-      case "skip" | "no" | "false" => false
-      case "include" | "yes" | "true" => true
-      case "ask" =>
-        val msg =
-          s"sbt-autodoc: Found $mmdCount .mmd file(s) in the documentation repo. " +
-            "Include diagram-update instructions in the elaboration prompt?"
-        // Supershell / JLine: avoid deadlocks and hidden prompts (see sbt#5122)
-        System.out.synchronized {
-          interaction.confirm(msg)
-        }
-      case other =>
-        log.warn(s"sbt-autodoc: unknown autoDocElaborationMermaidDiagrams value '$other', treating as skip")
-        false
-    }
+    val msg =
+      s"sbt-autodoc: Found $mmdCount .mmd file(s) in the documentation repo. " +
+        "Include diagram-update instructions in the elaboration prompt?"
+    ElaborationIncludePolicy.shouldInclude(policy, mmdCount, msg, log, interaction)
   }
 }

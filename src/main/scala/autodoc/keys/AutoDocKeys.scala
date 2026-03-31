@@ -22,7 +22,71 @@ trait AutoDocKeys {
   val autoDocDocumentationConfigPath =
     settingKey[String]("Path to autodoc JSON config inside the documentation repo checkout")
 
-  /** Where to clone or update the documentation repository (under target/ by default). */
+  /**
+    * `generic` (default) — JSON/templates only; generated markdown goes to [[autoDocOutputFile]] in the service repo.
+    * `docusaurus` — also allows writing under `defaults.docusaurus.contentPath` when using [[autoDocDocumentationOutputMode]].
+    */
+  val autoDocDocumentationRepoKind =
+    settingKey[Option[String]](
+      "Optional override: generic | docusaurus (else defaults.documentationRepoKind in JSON, else generic)",
+    )
+
+  /**
+    * `serviceTarget` (default) — write only to [[autoDocOutputFile]].
+    * `documentationBranch` — create a new branch in the documentation repo checkout, write Docusaurus markdown there, commit, then push from that repo to open a PR.
+    */
+  val autoDocDocumentationOutputMode =
+    settingKey[String]("serviceTarget | documentationBranch")
+
+  /** Override for `defaults.docusaurus.contentPath` (directory under the documentation repo root, POSIX path). */
+  val autoDocDocusaurusContentPath = settingKey[Option[String]]("Optional Docusaurus docs folder under the documentation repo root")
+
+  /**
+    * Optional prefix before the service-based filename (e.g. `adr-` → `adr-edge-ctrl.md`).
+    * Overrides `defaults.docusaurus.outputFilePrefix` when set (non-empty).
+    */
+  val autoDocDocusaurusOutputFilePrefix = settingKey[Option[String]]("Optional filename prefix for Docusaurus branch output")
+
+  /**
+    * If `Some(true)`, prepend `yyyy-MM-dd-` to the output filename (ADR-style).
+    * If `Some(false)`, never add a date (overrides JSON).
+    * If `None`, use `defaults.docusaurus.outputFileDatePrefix` from JSON, else false.
+    */
+  val autoDocDocusaurusOutputFileDatePrefix =
+    settingKey[Option[Boolean]]("Optional: prefix output filename with yyyy-MM-dd-")
+
+  /** Branch name for documentation PR workflow; default `autodoc/<serviceId>-<yyyyMMdd-HHmmss>`. */
+  val autoDocDocumentationBranchName = settingKey[Option[String]]("Optional branch name in the documentation repository")
+
+  /** Commit message when [[autoDocDocumentationOutputMode]] is documentationBranch and [[autoDocDocumentationCommit]] is true. */
+  val autoDocDocumentationCommitMessage = settingKey[Option[String]]("Optional git commit message for documentation branch")
+
+  /** When false, no `git commit` on the documentation branch. Combine with [[autoDocDocumentationGitStage]] to only `git add`. */
+  val autoDocDocumentationCommit = settingKey[Boolean]("Whether to git commit on the documentation branch (default true)")
+
+  /**
+    * When [[autoDocDocumentationCommit]] is false: if true, run **`git add`** on the generated markdown path only (no commit).
+    * When [[autoDocDocumentationCommit]] is true, this setting is ignored (the file is staged as part of commit).
+    */
+  val autoDocDocumentationGitStage = settingKey[Boolean](
+    "When commit is false: stage only the generated file (git add); default false",
+  )
+
+  /**
+    * `generated` — [[autoDoc]] writes the raw template output to the documentation branch.
+    * `elaborated` — [[autoDoc]] only writes under `target/`; [[autoDocElaborate]] (execute) writes elaborated markdown to the documentation branch (e.g. `edge-ctrl.md`).
+    */
+  val autoDocDocumentationBranchMarkdownSource =
+    settingKey[String]("generated | elaborated — which markdown to commit on the documentation branch")
+
+  /**
+    * `sibling` (default) — use `../<repo-name>/` next to the service project root: update if it exists (git fetch / checkout / pull), shallow-clone if missing.
+    * `cache` — clone or update under [[autoDocDocumentationCacheDirectory]] only (previous behavior).
+    */
+  val autoDocDocumentationRepoResolution =
+    settingKey[String]("sibling | cache — where to place the documentation repo checkout when using autoDocDocumentationRepoUrl")
+
+  /** Where to clone or update the documentation repository when [[autoDocDocumentationRepoResolution]] is `cache`. */
   val autoDocDocumentationCacheDirectory =
     settingKey[File]("Cache directory for the cloned documentation repository")
 
@@ -104,6 +168,13 @@ trait AutoDocKeys {
     * adds diagram-update instructions to the elaboration prompt, `skip` never does.
     */
   val autoDocElaborationMermaidDiagrams = settingKey[String]("ask | include | skip — elaboration prompt and .mmd files")
+
+  /**
+    * When the documentation repo has files whose name or body references the resolved service id (e.g. `edge-ctrl.md`):
+    * same `ask` | `include` | `skip` behavior as [[autoDocElaborationMermaidDiagrams]] — adds instructions to edit those
+    * paths in place (mirrors the `.mmd` flow). `.mmd` paths are listed only under the Mermaid section.
+    */
+  val autoDocElaborationServiceDocs = settingKey[String]("ask | include | skip — elaboration prompt and existing service docs in repo")
 }
 
 object AutoDocKeys extends AutoDocKeys
